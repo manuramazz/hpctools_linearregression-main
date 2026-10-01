@@ -11,23 +11,18 @@
 # run_bench.sh — 3 compilers x 4 opt levels x 3 configs x NRUNS runs
 #
 # Usage:
-#   sbatch run_bench.sh <solver_label> [compilers...]
-#     sbatch run_bench.sh ge                 # gcc icc icx
-#     sbatch run_bench.sh gj gcc             # only gcc (split into several jobs)
-#
-# <solver_label> only tags the results (ge / gj): the solver actually used is
-# the one wired in linreg.c when the job compiles.
+#   sbatch run_bench.sh [compilers...]
+#     sbatch run_bench.sh                    # gcc icc icx
+#     sbatch run_bench.sh gcc                # only gcc (split into several jobs)
 #
 # Output (logs/):
-#   raw_<solver>.csv      one row per run
-#   summary_<solver>.csv  mean and std of every phase per variant/config
-#   <solver>_<cc>_<opt>.log  full program output, for traceability
+#   raw.csv        one row per run
+#   summary.csv    mean of every phase per variant/config
+#   <cc>_<opt>.log full program output, for traceability
 # =============================================================================
 
 set -u -o pipefail
 
-SOLVER=${1:?usage: run_bench.sh <solver_label> [compilers...]}
-shift
 if [ $# -gt 0 ]; then COMPILERS=("$@"); else COMPILERS=(gcc icc icx); fi
 
 OPTS=(O0 O2 O3 Ofast)
@@ -41,9 +36,9 @@ INTEL_MODULE="intel/2021.3.0"
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")}"
 mkdir -p logs bin
 
-RAW="logs/raw_${SOLVER}.csv"
-SUMMARY="logs/summary_${SOLVER}.csv"
-[ -f "$RAW" ] || echo "solver,compiler,opt,N,p,run,t_xtx,t_xty,t_solve,t_total,max_diff,rms" > "$RAW"
+RAW="logs/raw.csv"
+SUMMARY="logs/summary.csv"
+[ -f "$RAW" ] || echo "compiler,opt,N,p,run,t_xtx,t_xty,t_solve,t_total,max_diff,rms" > "$RAW"
 
 load_compiler() {
   module purge
@@ -65,7 +60,7 @@ parse_output() {
     END { print xtx, xty, sol, maxd, rms }'
 }
 
-echo "== Job ${SLURM_JOB_ID:-local} on $(hostname) — solver=$SOLVER compilers=${COMPILERS[*]}"
+echo "== Job ${SLURM_JOB_ID:-local} on $(hostname) — compilers=${COMPILERS[*]}"
 lscpu | grep -E "Model name|L1d|L2|L3" || true
 
 for cc in "${COMPILERS[@]}"; do
@@ -80,7 +75,7 @@ for cc in "${COMPILERS[@]}"; do
 
   for opt in "${OPTS[@]}"; do
     bin="bin/linreg_${cc}_${opt}"
-    log="logs/${SOLVER}_${cc}_${opt}.log"
+    log="logs/${cc}_${opt}.log"
     : > "$log"
 
     for cfg in "${CONFIGS[@]}"; do
@@ -95,32 +90,28 @@ for cc in "${COMPILERS[@]}"; do
         read -r t_xtx t_xty t_solve max_diff rms <<< "$(parse_output <<< "$out")"
         t_total=$(awk -v a="$t_xtx" -v b="$t_xty" -v c="$t_solve" 'BEGIN { printf "%.6f", a + b + c }')
 
-        echo "$SOLVER,$cc,$opt,$N,$p,$run,$t_xtx,$t_xty,$t_solve,$t_total,$max_diff,$rms" >> "$RAW"
+        echo "$cc,$opt,$N,$p,$run,$t_xtx,$t_xty,$t_solve,$t_total,$max_diff,$rms" >> "$RAW"
         echo "$cc $opt N=$N p=$p run=$run total=${t_total}s max_diff=$max_diff"
       done
     done
   done
 done
 
-# Mean and (sample) std per solver/compiler/opt/N/p over all rows in RAW
+# Mean per compiler/opt/N/p over all rows in RAW
 awk -F, '
   NR == 1 { next }
   {
-    k = $1 "," $2 "," $3 "," $4 "," $5
+    k = $1 "," $2 "," $3 "," $4
     if (!(k in n)) order[++nk] = k
     n[k]++
-    for (c = 7; c <= 12; c++) { s[k, c] += $c; q[k, c] += $c * $c }
+    for (c = 6; c <= 11; c++) s[k, c] += $c
   }
   END {
-    print "solver,compiler,opt,N,p,runs,xtx_mean,xtx_std,xty_mean,xty_std,solve_mean,solve_std,total_mean,total_std,max_diff_mean,rms_mean"
+    print "compiler,opt,N,p,runs,xtx_mean,xty_mean,solve_mean,total_mean,max_diff_mean,rms_mean"
     for (i = 1; i <= nk; i++) {
       k = order[i]; line = k "," n[k]
-      for (c = 7; c <= 10; c++) {
-        m = s[k, c] / n[k]
-        v = (n[k] > 1) ? (q[k, c] - n[k] * m * m) / (n[k] - 1) : 0
-        line = line sprintf(",%.6f,%.6f", m, (v > 0) ? sqrt(v) : 0)
-      }
-      line = line sprintf(",%.6e,%.6e", s[k, 11] / n[k], s[k, 12] / n[k])
+      for (c = 6; c <= 9; c++)  line = line sprintf(",%.6f", s[k, c] / n[k])
+      for (c = 10; c <= 11; c++) line = line sprintf(",%.6e", s[k, c] / n[k])
       print line
     }
   }' "$RAW" > "$SUMMARY"
