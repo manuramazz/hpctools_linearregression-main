@@ -129,7 +129,9 @@ int main(int argc, char **argv) {
   check_solution(beta, beta_true, p);
 
   // Print times:
-  // printf("Time taken by ...: %.2f s\n", diff_seconds(&t1, &t0));
+  printf("Time taken by compute XtX: %.2f s\n", diff_seconds(&t0, &t1));
+  printf("Time taken by compute Xty : %.2f s\n", diff_seconds(&t1, &t2));
+  printf("Time taken by solver : %.2f s\n", diff_seconds(&t2, &t3));
 
   free(X);
   free(beta_true);

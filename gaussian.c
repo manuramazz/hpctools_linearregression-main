@@ -1,3 +1,5 @@
+#include <stdlib.h>
+#include <math.h>
 #include "gaussian.h"
 
 /* -------------------------------------------------------------------------
@@ -34,5 +36,103 @@ void gaussian_elimination_solve(const double *XtX, const double *Xty,
    * back substitution here. A scratch p x (p+1) augmented matrix can be
    * allocated locally with malloc and freed before returning.
    */
+   double *augmented_matrix = (double *) malloc(p * (p + 1) * sizeof(double));
+   
+   for (int i = 0; i < p; i++) {
+     for (int j = 0; j < p; j++) {
+       augmented_matrix[i * (p + 1) + j] = XtX[i * p + j];
+     }
+     augmented_matrix[i * (p + 1) + p] = Xty[i];
+   }
+   // Forward elimination with partial pivoting
+   for (int k=0; k<p-1; k++) {
+      // Find the pivot row
+      int pivot_row = k;
+      for (int i=k+1; i<p; i++) {
+         if (fabs(augmented_matrix[i * (p + 1) + k]) > fabs(augmented_matrix[pivot_row * (p + 1) + k])) {
+            pivot_row = i;
+         }
+      }
+      // Swap rows if necessary
+      if (pivot_row != k) {
+         for (int j=0; j<p+1; j++) {
+            double temp = augmented_matrix[k * (p + 1) + j];
+            augmented_matrix[k * (p + 1) + j] = augmented_matrix[pivot_row * (p + 1) + j];
+            augmented_matrix[pivot_row * (p + 1) + j] = temp;
+         }
+      }
+      // Eliminate column k from rows below
+      for (int i=k+1; i<p; i++) {
+         double factor = augmented_matrix[i * (p + 1) + k] / augmented_matrix[k * (p + 1) + k];
+         for (int j=k; j<p+1; j++) {
+            augmented_matrix[i * (p + 1) + j] -= factor * augmented_matrix[k * (p + 1) + j];
+         }
+      }
+   }
+
+   // Back substitution
+   for(int i=p-1; i>=0; i--) {
+      beta[i] = augmented_matrix[i * (p + 1) + p];
+      for(int j=i+1; j<p; j++) {
+         beta[i] -= augmented_matrix[i * (p + 1) + j] * beta[j];
+      }
+      beta[i] /= augmented_matrix[i * (p + 1) + i];
+   }
+
+   // Free the allocated memory for the augmented matrix
+   free(augmented_matrix);
+   
 
 }
+
+
+void gauss_jordan_solve(const double *XtX, const double *Xty,
+                                double *beta, int p) {
+   double *augmented_matrix = (double *) malloc(p * (p + 1) * sizeof(double));
+
+   for (int i = 0; i < p; i++) {
+      for (int j = 0; j < p; j++) {
+         augmented_matrix[i * (p + 1) + j] = XtX[i * p + j];
+      }
+      augmented_matrix[i * (p + 1) + p] = Xty[i];
+   }
+
+   // Elimination with partial pivoting
+   for (int k=0; k<p; k++) {
+      // Find the pivot row
+      int pivot_row = k;
+      for (int i=k+1; i<p; i++) {
+         if (fabs(augmented_matrix[i * (p + 1) + k]) > fabs(augmented_matrix[pivot_row * (p + 1) + k])) {
+            pivot_row = i;
+         }
+      }
+      // Swap rows if necessary
+      if (pivot_row != k) {
+         for (int j=0; j<p+1; j++) {
+            double temp = augmented_matrix[k * (p + 1) + j];
+            augmented_matrix[k * (p + 1) + j] = augmented_matrix[pivot_row * (p + 1) + j];
+            augmented_matrix[pivot_row * (p + 1) + j] = temp;
+         }
+      }
+      // Eliminate column k from all other rows
+      for(int i=0; i<p; i++) {
+         if(i != k) {
+            double factor = augmented_matrix[i * (p + 1) + k] / augmented_matrix[k * (p + 1) + k];
+            for(int j=k; j<p+1; j++) {
+               augmented_matrix[i * (p + 1) + j] -= factor * augmented_matrix[k * (p + 1) + j];
+            }
+         }
+      }
+   }
+
+   // The matrix is now diagonal: read the solution off the last column
+   for (int i=0; i<p; i++) {
+      beta[i] = augmented_matrix[i * (p + 1) + p] / augmented_matrix[i * (p + 1) + i];
+   }
+
+   // Free the allocated memory for the augmented matrix
+   free(augmented_matrix);
+}
+
+
+
